@@ -1,8 +1,13 @@
 # HANSolo-manuscript
 "Identification of patient-specific T cell neoantigens through HLA-agnostic genetic screens"
 
+This repository supports the manuscript, "Identification of patient-specific T cell neoantigens through HLA-agnostic genetic screens." This repo contains the code to perform the analyses described in the manuscript.
 
-This is a repository of code for the analyses associated with the paper "Identification of patient-specific T cell neoantigens through HLA-agnostic genetic screens" by Cattaneo et al. (Submitted)
+If you use this code, please cite the manuscript:
+
+>  Identification of patient-specific T cell neoantigens through HLA-agnostic genetic screens. (Submitted)
+
+At this time the data objects (e.g .rda) are only available upon request.
 
 
 ### Description
