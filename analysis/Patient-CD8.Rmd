@@ -1,0 +1,514 @@
+---
+title: "Identification of patient-specific T cell neoantigens through HLA-agnostic genetic screens (Benchmark-CD8)"
+author: "Thomas W. Battaglia"
+date: "last update: `r format(Sys.Date(), format = '%d %B %Y')`"
+output: 
+  html_document:
+    toc: true
+    toc_float:
+      collapsed: false
+      smooth_scroll: true
+  theme: paper
+  highlight: haddock
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(warning = FALSE)
+knitr::opts_chunk$set(fig.path = "images/")
+library(knitr)
+library(patchwork)
+library(ggsci)
+library(DESeq2)
+library(readxl)
+library(tidyverse)
+library(ggpubr)
+library(ggrepel)
+
+# Function for calculating geometric mean
+gm_mean = function(x, na.rm=TRUE){
+  exp(sum(log(x[x > 0]), na.rm=na.rm) / length(x))
+}
+
+```
+
+# Introduction
+Reads were first de-multiplexed with ea-utils (fastq-multx) with an allowed barcode mismatch of 1 (Default). De-multiplexed reads were then subjected to an alignment against the UniVec vector contamination database using the adapter removal tool within ea-utils (fastq-mcf). Barcodes were extracted by remove the last 12 nucleotides from each read.
+
+Next reads were subjected to an alignment against the Oligo library using a DNA aligner. We used Bowtie2...
+
+## Data import & preprocessing
+We are going to first import the merged counts tables that is outputted from the Nextflow pipeline. This table already has the raw counts summarised from the alignments and merged into a single matrix.
+
+```{r}
+# Import merged counts table from pipeline
+counts = readRDS('../data/CD8-patient-counts.rda')
+
+# Convert to long format
+counts.long = counts %>% 
+  pivot_longer(cols = !starts_with('Id'), names_to = 'sample', values_to = 'counts')
+
+# Import metadata
+metadata = data.frame(row.names = colnames(counts), 
+                      Sample = colnames(counts),
+                      Group = c("BTcells", "BTcells", "BTcells", "Bcells", "Bcells", "Bcells"))
+
+# Import mapping summary
+report = readRDS("../data/CD8-patient-multiqc.rda")
+```
+
+
+### Summary stats
+
+```{r}
+# Mean
+mean(report$raw_total_sequences)
+
+# Median
+median(report$raw_total_sequences)
+
+# Range
+range(report$raw_total_sequences)
+```
+
+### Mapped reads per sample
+
+```{r}
+report %>% 
+  dplyr::select(Sample, reads_unmapped, reads_mapped) %>% 
+  mutate(Sample = str_replace(Sample, '-bamstats', '')) %>% 
+  pivot_longer(cols = c("reads_unmapped", "reads_mapped"), names_to = "feature", values_to = "reads") %>% 
+  ggplot(aes(x = Sample, y = reads, fill = feature)) +
+  geom_col() +
+  coord_flip() +
+  theme_light(base_size = 11) +
+  theme(legend.position = "top") +
+  scale_fill_aaas() +
+  xlab("") +
+  ylab("Number of reads")
+```
+
+```{r}
+report %>% 
+  dplyr::select(Sample, reads_unmapped_percent, reads_mapped_percent) %>% 
+  mutate(Sample = str_replace(Sample, '-bamstats', '')) %>% 
+  pivot_longer(cols = c("reads_unmapped_percent", "reads_mapped_percent"), names_to = "feature", values_to = "reads") %>% 
+  mutate(reads = reads / 100) %>% 
+  ggplot(aes(x = Sample, y = reads, fill = feature)) +
+  geom_col() +
+  coord_flip() +
+  theme_light(base_size = 11) +
+  theme(legend.position = "top") +
+  scale_fill_aaas() +
+  scale_y_continuous(labels = scales::percent) +
+  xlab("") +
+  ylab("Percent of reads")
+```
+
+### Plot histogram
+
+```{r}
+counts.long %>% 
+  ggplot(aes(x = log10(counts))) +
+  geom_histogram(aes(y=..density..), binwidth=0.25, colour="black", fill="white") +
+  geom_density(alpha = 0.2, fill = "#FF6666") +
+  facet_wrap(sample~.) +
+  theme_light(base_size = 11) +
+  ylab("Density") +
+  xlab("Reads per oligo (log10)") 
+```
+
+
+### Bcells alone replicates
+```{r}
+counts %>% 
+  ggplot(aes(x = log10(Bcells_alone_1), y = log10(Bcells_alone_2))) +
+  geom_point(colour = alpha("grey", 0.7)) +
+  xlab("Bcell-alone replicate #1 (log10)") +
+  ylab("Bcell-alone replicate #2 (log10)") +
+  theme_light(base_size = 11) +
+  stat_cor(method = "pearson", aes(label = ..r.label..)) +
+  geom_smooth(method = "lm", se = FALSE) 
+
+counts %>% 
+  ggplot(aes(x = log10(Bcells_alone_1), y = log10(Bcells_cntrl))) +
+  geom_point(colour = alpha("grey", 0.7)) +
+  xlab("Bcell-alone replicate #1 (log10)") +
+  ylab("Bcell-control (log10)") +
+  theme_light(base_size = 11) +
+  stat_cor(method = "pearson", aes(label = ..r.label..)) +
+  geom_smooth(method = "lm", se = FALSE) 
+
+counts %>% 
+  ggplot(aes(x = log10(Bcells_alone_2), y = log10(Bcells_cntrl))) +
+  geom_point(colour = alpha("grey", 0.7)) +
+  xlab("Bcell-alone replicate #2 (log10)") +
+  ylab("Bcell-control (log10)") +
+  theme_light(base_size = 11) +
+  stat_cor(method = "pearson", aes(label = ..r.label..)) +
+  geom_smooth(method = "lm", se = FALSE) 
+```
+
+
+### Bcells + Tcells replicates
+```{r}
+counts %>% 
+  ggplot(aes(x = log10(Bcells_Tcells_1), y = log10(Bcells_Tcells_2))) +
+  geom_point(colour = alpha("grey", 0.7)) +
+  xlab("Bcells & Tcells replicate #1 (log10)") +
+  xlab("Bcells & Tcells replicate #2 (log10)") +
+  theme_light(base_size = 11) +
+  stat_cor(method = "pearson", aes(label = ..r.label..)) +
+  geom_smooth(method = "lm", se = FALSE) 
+
+counts %>% 
+  ggplot(aes(x = log10(Bcells_Tcells_2), y = log10(Bcells_Tcells_3))) +
+  geom_point(colour = alpha("grey", 0.7)) +
+  xlab("Bcells & Tcells replicate #3 (log10)") +
+  xlab("Bcells & Tcells replicate #3 (log10)") +
+  theme_light(base_size = 11) +
+  stat_cor(method = "pearson", aes(label = ..r.label..)) +
+  geom_smooth(method = "lm", se = FALSE) 
+
+counts %>% 
+  ggplot(aes(x = log10(Bcells_Tcells_1), y = log10(Bcells_Tcells_3))) +
+  geom_point(colour = alpha("grey", 0.7)) +
+  xlab("Bcells & Tcells replicate #1 (log10)") +
+  xlab("Bcells & Tcells replicate #3 (log10)") +
+  theme_light(base_size = 11) +
+  stat_cor(method = "pearson", aes(label = ..r.label..)) +
+  geom_smooth(method = "lm", se = FALSE)
+```
+
+### Positive control replicates
+```{r}
+# Plot known dropout from replicate 1
+p1 <- counts %>% 
+  rownames_to_column("Id") %>% 
+  ggplot(aes(x = log10(Bcells_Tcells_1), y = log10(Bcells_cntrl))) +
+  geom_point(colour = alpha("grey", 0.7)) +
+  geom_point(colour = alpha("red", 0.7), data = . %>% filter(Id == "MART_001")) +
+  theme_light(base_size = 11)  +
+  xlab("B-cells & T-cells (Rep #1)") +
+  ylab("B-cells positive control") 
+
+# Plot known dropout from replicate 2
+p2 <- counts %>% 
+  rownames_to_column("Id") %>% 
+  ggplot(aes(x = log10(Bcells_Tcells_2), y = log10(Bcells_cntrl))) +
+  geom_point(colour = alpha("grey", 0.7)) +
+  geom_point(colour = alpha("red", 0.7), data = . %>% filter(Id == "MART_001")) +
+  theme_light(base_size = 11) +
+  xlab("B-cells & T-cells (Rep #2)") +
+  ylab("B-cells positive control") 
+
+# Plot known dropout from replicate 3
+p3 <- counts %>% 
+  rownames_to_column("Id") %>%
+  ggplot(aes(x = log10(Bcells_Tcells_3), y = log10(Bcells_cntrl))) +
+  geom_point(colour = alpha("grey", 0.7)) +
+  geom_point(colour = alpha("red", 0.7), data = . %>% filter(Id == "MART_001")) +
+  theme_light(base_size = 11) +
+  xlab("B-cells & T-cells (Rep #3)") +
+  ylab("B-cells positive control") 
+
+# Plot known dropout with averaged expression
+p4 <- counts %>% 
+  rownames_to_column("Id") %>%
+  mutate(BTcells_mean = rowMeans(select(., Bcells_Tcells_1:Bcells_Tcells_3))) %>% 
+  ggplot(aes(x = log10(BTcells_mean), y = log10(Bcells_cntrl))) +
+  geom_point(colour = alpha("grey", 0.7)) +
+  geom_point(colour = alpha("red", 0.7), data = . %>% filter(Id == "MART_001")) +
+  theme_light(base_size = 11) +
+  xlab("Mean Bcells & Tcells") +
+  ylab("Bcells positive") 
+
+# plot side-by-side
+p1 + p2 + p3 + p4
+```
+
+
+## Median-normalization
+
+
+### Prepare data for DESeq2 object
+
+```{r}
+# Match the sample ID's between samples
+counts = counts[,match(metadata$Sample, colnames(counts))]
+
+# Make DESeq2 object
+ddsMat <- DESeqDataSetFromMatrix(countData = counts,
+                                 colData = metadata,
+                                 design = ~Group)
+```
+
+
+### Normalize
+```{r}
+# Estimate size factors
+ddsMat <- estimateSizeFactors(ddsMat)
+
+# Get normalize counts
+counts.norm <- counts(ddsMat, normalized = TRUE) %>% 
+  as.data.frame() %>% 
+  rownames_to_column("Id")
+
+# Write table to disk
+write_tsv(counts, "tables/patient-counts.tsv")
+write_tsv(counts.norm, "tables/patient-counts-norm.tsv")
+
+# Create a long table 
+counts.norm.long = counts.norm %>% 
+  gather(sample, norm.counts, -Id) 
+```
+
+### Plot boxplots
+
+```{r}
+# Pre-normalized
+p1 = counts.long %>% 
+  ggplot(aes(x = sample, y = log10(counts + 1))) +
+  geom_boxplot() +
+  theme_light(base_size = 11) +
+  theme(axis.text.x = element_text(angle = 90)) +
+  xlab("") +
+  ylab("Counts (log10)") +
+  ggtitle('Un-normalized data')
+
+# Post-normalized
+p2 = counts.norm.long %>% 
+  ggplot(aes(x = sample, y = log10(norm.counts + 1))) +
+  geom_boxplot() +
+  theme_light(base_size = 11) +
+  theme(axis.text.x = element_text(angle = 90)) +
+  xlab("") +
+  ylab("Normalized counts (log10)") +
+  ggtitle('Median-normalized data')
+
+# Plot side by side
+p1 + p2
+```
+
+### Plot normalized histogram
+
+```{r}
+counts.norm.long %>% 
+  ggplot(aes(x = log10(norm.counts))) +
+  geom_histogram(aes(y=..density..), binwidth=0.25, colour="black", fill="white") +
+  geom_density(alpha = 0.2, fill = "#FF6666") +
+  facet_wrap(sample~.) +
+  theme_light(base_size = 11) +
+  ylab("Density") +
+  xlab("Normalized reads per oligo (log10)") 
+```
+
+## B&Tcells vs. B-cells
+
+```{r}
+# Get average between the replicates
+btcells.mean = counts.norm %>% 
+  mutate(Bcells_mean = rowMeans(select(., Bcells_alone_2, Bcells_cntrl)),
+         BTcells_mean = rowMeans(select(., Bcells_Tcells_2, Bcells_Tcells_1))) %>% 
+  mutate(M = log2(BTcells_mean / Bcells_mean),
+         A = (log2(BTcells_mean) + log2(Bcells_mean)) / 2) 
+
+# Plot scatterplot
+btcells.mean %>% 
+  ggplot(aes(x = log10(Bcells_mean), y = log10(BTcells_mean), label = Id)) +
+  geom_point(colour = alpha("grey", 0.7)) +
+  geom_point(colour = alpha("red", 0.7), data = . %>% filter(Id == "ABT1_001")) +
+  geom_point(colour = alpha("red", 0.7), data = . %>% filter(Id == "EEF1A1_001B")) +
+  theme_light(base_size = 11) +
+  geom_text_repel(data = . %>% filter(Id %in% c("ABT1_001", "EEF1A1_001B")),
+                  nudge_x = 0.3,
+                  segment.size = 0.2,
+                  segment.color = "grey50",
+                  direction= "y",
+                  hjust = 0) +
+  xlab("Bcells alone (log10)") +
+  ylab("Bcells & Tcells (log10)")
+p1
+
+# Plot MA plot
+btcells.mean %>% 
+  ggplot(aes(x = A, y = M)) +
+  geom_point(colour = alpha("grey", 0.5)) +
+  geom_point(size = 3, colour = rgb(133,56,80, max=255), data = filter(btcells.mean, Id  == "ABT1_001")) +
+  geom_point(size = 3, colour = rgb(133,56,80, max=255), data = filter(btcells.mean, Id  == "EEF1A1_001B")) +
+  theme_light(base_size = 10.5) +
+  ylim(-3, 3) +
+  xlab(expression(paste("Mean normalized counts ", '(', log[2], ")"))) +
+  ylab(expression(paste("Fold change ", '(', log[2], " 1D3/Bcells alone)")))
+```
+
+### Get statistics for dropout
+
+```{r}
+# Create new DESeq2 object with poor samples removed
+ddsMat.subset = ddsMat[,which(colnames(assay(ddsMat)) %in% c("Bcells_alone_2", "Bcells_cntrl", "Bcells_Tcells_2", "Bcells_Tcells_1"))]
+
+# Remove MART1
+ddsMat.subset <- ddsMat.subset[row.names(assay(ddsMat.subset)) != "MART_001",]
+
+# Run stats
+ddsMat.subset <- DESeq(ddsMat.subset)
+
+# Get results (Mock / ID3)
+results(ddsMat.subset, alpha = 0.05) %>% 
+  summary()
+
+# Get table of results
+ddsMat.subset.res = results(ddsMat.subset, alpha = 0.05, tidy = T)
+
+# View table
+ddsMat.subset.res %>% 
+  filter(padj < 0.05) %>% 
+  head()
+```
+
+
+## Filter low count oligos (visualization)
+```{r}
+# Rank
+counts.norm.long %>% 
+  group_by(Id) %>% 
+  summarise(sum = sum(norm.counts),
+            mean = mean(norm.counts),
+            median = median(norm.counts),
+            sd = sd(norm.counts),
+            geomean = gm_mean(norm.counts),
+            cv = sd(norm.counts) / mean(norm.counts))  %>% 
+  mutate(rank = rank(mean)) %>% 
+  ggplot(aes(x = rank, y = log10(mean))) +
+  geom_point() +
+  theme_minimal()
+```
+
+### Plot average abundance 
+```{r}
+# Get mean counts per oligo
+counts.mean = counts.norm.long %>% 
+  group_by(Id) %>% 
+  summarise(sum = sum(norm.counts),
+            mean = mean(norm.counts),
+            median = median(norm.counts),
+            sd = sd(norm.counts),
+            geomean = gm_mean(norm.counts),
+            cv = sd(norm.counts) / mean(norm.counts)) 
+
+# Get quantiles
+quantile(counts.mean$median , seq(from = 0, to = 0.10, by = 0.005))
+
+# Histogram with 5% cutoff
+counts.norm.long %>% 
+  group_by(Id) %>% 
+  summarise(total.count = sum(norm.counts),
+            mean.count = mean(norm.counts),
+            median = median(norm.counts),
+            geomean = gm_mean(norm.counts),
+            sd.count = sd(norm.counts)) %>% 
+  ggplot(aes(x = log10(median))) +
+  geom_histogram(binwidth = 0.25, colour = "black", fill = "white") +
+  geom_density(alpha = 0.2, fill = "#FF6666") +
+  geom_vline(xintercept = log10(396.491177), color = "red") +
+  theme_light(base_size = 11) +
+  xlab("Normalized reads per oligo (log10)")
+```
+
+### Apply 5% cutoff
+```{r}
+# Get ID's within the limits
+## Cutoff = 5%
+idx <- counts.norm.long %>% 
+  group_by(Id) %>% 
+  summarise(sum = sum(norm.counts),
+            mean = mean(norm.counts),
+            median = median(norm.counts),
+            geomean = gm_mean(norm.counts),
+            sd = sd(norm.counts) ,
+            c.v = sd/mean) %>% 
+  filter(median >= 27.1852177) %>% 
+  pull(Id)
+
+# Filter table
+counts.norm.fil = counts.norm %>% 
+  filter(Id %in% idx)
+
+# Write filter table to disk
+write_tsv(counts.norm.fil, "tables/patient-counts-norm-filtered.tsv")
+
+# Get dimensions
+dim(counts.norm)
+dim(counts.norm.fil)
+
+# Create long dataframe
+counts.norm.fil.long = counts.norm.fil %>% 
+  gather(sample, norm.counts, -Id) 
+
+# Plot boxplot
+counts.norm.fil.long %>% 
+  ggplot(aes(x = sample, y = log10(norm.counts + 1))) +
+  geom_boxplot() +
+  theme_light(base_size = 11) +
+  theme(axis.text.x = element_text(angle = 90)) +
+  xlab("") +
+  ylab("Normalized counts (log10)") +
+  ggtitle('Median-normalized data w/ filtering') 
+
+# Histogram all
+counts.norm.fil.long %>% 
+  ggplot(aes(x = log10(norm.counts))) +
+  geom_histogram(aes(y=..density..), binwidth=0.25, colour="black", fill="white") +
+  geom_density(alpha = 0.2, fill = "#FF6666") +
+  facet_wrap(sample~.) +
+  theme_light(base_size = 11) +
+  ylab("Density") +
+  xlab("(Filtered) Normalized reads per oligo (log10)")
+```
+
+### Plot MA B&T-cells vs. B-cells
+```{r}
+# Get average between the replicates
+btcells.mean = counts.norm.fil %>% 
+  mutate(Bcells_mean = rowMeans(select(., Bcells_alone_2, Bcells_cntrl)),
+         BTcells_mean = rowMeans(select(., Bcells_Tcells_2, Bcells_Tcells_1))) %>% 
+  mutate(M = log2(BTcells_mean / Bcells_mean),
+         A = (log2(BTcells_mean) + log2(Bcells_mean)) / 2) 
+
+# Plot scatterplot
+btcells.mean %>% 
+  ggplot(aes(x = log10(Bcells_mean), y = log10(BTcells_mean), label = Id)) +
+  geom_point(colour = alpha("grey", 0.7)) +
+  geom_point(colour = alpha("red", 0.7), data = . %>% filter(Id == "ABT1_001")) +
+  geom_point(colour = alpha("red", 0.7), data = . %>% filter(Id == "EEF1A1_001B")) +
+  theme_light(base_size = 11) +
+  geom_text_repel(data = . %>% filter(Id %in% c("ABT1_001", "EEF1A1_001B")),
+                  nudge_x = 0.3,
+                  segment.size = 0.2,
+                  segment.color = "grey50",
+                  direction= "y",
+                  hjust = 0) +
+  xlab("Bcells alone (log10)") +
+  ylab("Bcells & Tcells (log10)")
+p1
+
+# Plot MA plot
+btcells.mean %>% 
+  ggplot(aes(x = A, y = M)) +
+  geom_point(colour = alpha("grey", 0.5)) +
+  geom_point(size = 3, colour = rgb(133,56,80, max=255), data = filter(btcells.mean, Id  == "ABT1_001")) +
+  geom_point(size = 3, colour = rgb(133,56,80, max=255), data = filter(btcells.mean, Id  == "EEF1A1_001B")) +
+  theme_light(base_size = 10.5) +
+  ylim(-3, 3) +
+  xlab(expression(paste("Mean normalized counts ", '(', log[2], ")"))) +
+  ylab(expression(paste("Fold change ", '(', log[2], " 1D3/Bcells alone)")))
+```
+
+
+```{r}
+sessionInfo()
+```
+
+
