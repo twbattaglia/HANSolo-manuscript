@@ -2,6 +2,7 @@
 .Rhistory
 .RData
 .Ruserdata
+._*
 analysis/images
 data/
 analysis/snippets.R

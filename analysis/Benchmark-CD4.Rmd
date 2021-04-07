@@ -39,28 +39,27 @@ Next reads were subjected to an alignment against the Oligo library using a DNA 
 ## Data import & preprocessing
 We are going to first import the merged counts tables that is outputted from the Nextflow pipeline. This table already has the raw counts summarised from the alignments and merged into a single matrix.
 
-
-### Import oligos
--   oligo\_1899 (MART1\_ELA)
--   oligo\_4281 (MART1\_ELA)
--   oligo\_912 (MART1)
--   oligo\_3294 (MART1)
--   oligo\_1887 (CDK4mut)
--   oligo\_4269 (CDK4mut)
--   oligo\_1888 (CDK4wt)
--   oligo\_4270 (CDK4wt)
--   oligo\_1889 (RPS3Amut)
--   oligo\_4271 (RPS3Amut)
--   oligo\_1890 (RPS3Awt)
--   oligo\_4272 (RPS3Awt)
--   oligo\_1895 (MANSC1mut)
--   oligo\_4277 (MANSC1mut)
--   oligo\_1896 (MANSC1wt)
--   oligo\_4278 (MANSC1wt)
-
 ```{r}
 # Import counts
-cd4.counts = readRDS('../data/CD4-counts.rda')
+cd4.counts = readRDS('../data/CD4-counts.rda') %>% 
+  rownames_to_column("Id") %>% 
+  mutate(Id = recode(Id, oligo_1899 = "MART1_ELA_a",
+                         oligo_4281 = "MART1_ELA_b",
+                         oligo_913 = "MART1_a",
+                         oligo_3295 = "MART1_b",
+                         oligo_1887 = "CDK4mut_a",
+                         oligo_4269 = "CDK4mut_b",
+                         oligo_1888 = "CDK4wt_a",
+                         oligo_4270 = "CDK4wt_b",
+                         oligo_1889 = "RPS3Amut_a",
+                         oligo_4271 = "RPS3Amut_b",
+                         oligo_1890 = "RPS3Awt_a",
+                         oligo_4272 = "RPS3Awt_b",
+                         oligo_1895 = "MANSC1mut_a",
+                         oligo_4277 = "MANSC1mut_b",
+                         oligo_1896 = "MANSC1wt_a",
+                         oligo_4278 = "MANSC1wt_b")) %>% 
+  column_to_rownames("Id")
 
 # Convert to long format
 cd4.counts.long = cd4.counts %>% 
@@ -283,11 +282,135 @@ cd4.norm.long %>%
   xlab("Normalized reads per oligo (log10)") 
 ```
 
+## MANSC1 dropout
+```{r}
+# Get average between the replicates
+cd4.mansc1.mean = cd4.norm %>% 
+  mutate(Mock_mean = rowMeans(select(., cd4_mock_1, cd4_mock_2)),
+         MANSC1_mean = rowMeans(select(., cd4_mansc1_1, cd4_mansc1_2, cd4_mansc1_3))) %>% 
+  mutate(M = log2(MANSC1_mean / Mock_mean),
+         A = (log2(MANSC1_mean) + log2(Mock_mean)) / 2) 
+
+# Plot scatterplot
+p1 = cd4.mansc1.mean %>% 
+  ggplot(aes(x = log10(Mock_mean), y = log10(MANSC1_mean))) +
+  geom_point(colour = alpha("grey", 0.7)) +
+  geom_point(colour = "red", data = . %>% filter(Id %in% c("MANSC1mut_a", "MANSC1mut_b"))) +
+  geom_point(colour = "blue", data = . %>% filter(Id %in% c("MANSC1wt_a", "MANSC1wt_b"))) + 
+  geom_point(colour = "darkgreen", data = . %>% filter(Id %in% c("RPS3Amut_a", "RPS3Amut_b"))) + 
+  geom_point(colour = "orange", data = . %>% filter(Id %in% c("RPS3Awt_a", "RPS3Awt_b"))) + 
+  theme_light(base_size = 11) +
+  xlab("Mock normalized counts (log10)") +
+  ylab("Mansc1 normalized counts (log10)") 
+
+# Plot MA plot
+p2 = cd4.mansc1.mean %>% 
+  ggplot(aes(x = A, y = M)) +
+  geom_point(colour = alpha("grey", 0.5)) +
+  geom_point(colour = "red", data = . %>% filter(Id %in% c("MANSC1mut_a", "MANSC1mut_b"))) +
+  geom_point(colour = "blue", data = . %>% filter(Id %in% c("MANSC1wt_a", "MANSC1wt_b"))) + 
+  geom_point(colour = "darkgreen", data = . %>% filter(Id %in% c("RPS3Amut_a", "RPS3Amut_b"))) + 
+  geom_point(colour = "orange", data = . %>% filter(Id %in% c("RPS3Awt_a", "RPS3Awt_b"))) + 
+  theme_light(base_size = 11) +
+  ylim(-3, 3) +
+  xlab(expression(paste("Mean normalized counts ", '(', log[2], ")"))) +
+  ylab(expression(paste("Fold change ", '(', log[2], " Mansc1/Mock)")))
+
+p1 + p2
+```
+#### Calculate statistics 
+```{r}
+# Create new DESeq2 object with poor samples removed
+ddsMat.subset = ddsMat.cd4[,which(colnames(assay(ddsMat.cd4)) %in% c("cd4_mock_1", "cd4_mock_2", "cd4_mansc1_1", "cd4_mansc1_2", "cd4_mansc1_3"))]
+ddsMat.subset$Group = droplevels(ddsMat.subset$Group)
+ddsMat.subset$Group = relevel(ddsMat.subset$Group, "Mock")
+
+# Run stats
+ddsMat.subset <- DESeq(ddsMat.subset, fitType='local')
+
+# Get results (MANSC / Mock)
+results(ddsMat.subset, alpha = 0.05) %>% 
+  summary()
+
+# Get table of results
+cd4.mansc1.res = results(ddsMat.subset, alpha = 0.05)
+
+# View table
+cd4.mansc1.res %>% 
+  as.data.frame() %>% 
+  rownames_to_column("Id") %>%  
+  filter(padj < 0.05, abs(log2FoldChange) > 1)
+
+# Show quick plot of significance (Unknown oligo's)
+DESeq2::plotMA(cd4.mansc1.res, ylim = c(-3,3))
+```
 
 
-## Find dropped out oligos (MANSC1 vs. SNORD73)
+## Snord73 dropout
+```{r}
+# Get average between the replicates
+cd4.snord73.mean = cd4.norm %>% 
+  mutate(Mock_mean = rowMeans(select(., cd4_mock_1, cd4_mock_2)),
+         SNORD73mean = rowMeans(select(., cd4_snord73_1, cd4_snord73_2, cd4_snord73_3))) %>% 
+  mutate(M = log2(SNORD73mean / Mock_mean),
+         A = (log2(SNORD73mean) + log2(Mock_mean)) / 2) 
 
-### Scatter/MA plot
+# Plot scatterplot
+p1 = cd4.snord73.mean %>% 
+  ggplot(aes(x = log10(Mock_mean), y = log10(SNORD73mean))) +
+  geom_point(colour = alpha("grey", 0.7)) +
+  geom_point(colour = "red", data = . %>% filter(Id %in% c("MANSC1mut_a", "MANSC1mut_b"))) +
+  geom_point(colour = "blue", data = . %>% filter(Id %in% c("MANSC1wt_a", "MANSC1wt_b"))) + 
+  geom_point(colour = "darkgreen", data = . %>% filter(Id %in% c("RPS3Amut_a", "RPS3Amut_b"))) + 
+  geom_point(colour = "orange", data = . %>% filter(Id %in% c("RPS3Awt_a", "RPS3Awt_b"))) + 
+  theme_light(base_size = 11) +
+  xlab("Mock normalized counts (log10)") +
+  ylab("Snord73a normalized counts (log10)") 
+
+# Plot MA plot
+p2 = cd4.snord73.mean %>% 
+  ggplot(aes(x = A, y = M)) +
+  geom_point(colour = alpha("grey", 0.5)) +
+  geom_point(colour = "red", data = . %>% filter(Id %in% c("MANSC1mut_a", "MANSC1mut_b"))) +
+  geom_point(colour = "blue", data = . %>% filter(Id %in% c("MANSC1wt_a", "MANSC1wt_b"))) + 
+  geom_point(colour = "darkgreen", data = . %>% filter(Id %in% c("RPS3Amut_a", "RPS3Amut_b"))) + 
+  geom_point(colour = "orange", data = . %>% filter(Id %in% c("RPS3Awt_a", "RPS3Awt_b"))) + 
+  theme_light(base_size = 11) +
+  ylim(-3, 3) +
+  xlab(expression(paste("Mean normalized counts ", '(', log[2], ")"))) +
+  ylab(expression(paste("Fold change ", '(', log[2], " Snord73a/Mock)")))
+
+p1 + p2
+```
+#### Calculate statistics 
+```{r}
+# Create new DESeq2 object with poor samples removed
+ddsMat.subset = ddsMat.cd4[,which(colnames(assay(ddsMat.cd4)) %in% c("cd4_mock_1", "cd4_mock_2", "cd4_snord73_1", "cd4_snord73_2", "cd4_snord73_3"))]
+ddsMat.subset$Group = droplevels(ddsMat.subset$Group)
+ddsMat.subset$Group = relevel(ddsMat.subset$Group, "Mock")
+
+# Run stats
+ddsMat.subset <- DESeq(ddsMat.subset, fitType='local')
+
+# Get results (MANSC / Mock)
+results(ddsMat.subset, alpha = 0.05) %>% 
+  summary()
+
+# Get table of results
+cd4.snord.res = results(ddsMat.subset, alpha = 0.05)
+
+# View table
+cd4.snord.res %>% 
+  as.data.frame() %>% 
+  rownames_to_column("Id") %>%  
+  filter(padj < 0.05, abs(log2FoldChange) > 1)
+
+# Show quick plot of significance (Unknown oligo's)
+DESeq2::plotMA(cd4.snord.res, ylim = c(-3,3))
+```
+
+## Snord73 vs. MANSC1 dropout
+
 ```{r}
 # Get average between the replicates
 cd4.mansc1.snord73.mean = cd4.norm %>% 
@@ -298,32 +421,34 @@ cd4.mansc1.snord73.mean = cd4.norm %>%
          A = (log2(MANSC1_mean) + log2(SNORD73mean)) / 2) 
 
 # Plot scatterplot
-cd4.mansc1.snord73.mean %>% 
+p1 = cd4.mansc1.snord73.mean %>% 
   ggplot(aes(x = log10(SNORD73mean), y = log10(MANSC1_mean))) +
   geom_point(colour = alpha("grey", 0.7)) +
-  geom_point(size = 3, colour = "red", data = filter(cd4.mansc1.snord73.mean, Id %in% c("oligo_1895", "oligo_4277"))) + #MANSC1mut
-  geom_point(size = 3, colour = "blue", data = filter(cd4.mansc1.snord73.mean, Id %in% c("oligo_1896", "oligo_4278"))) + #MANSC1wt
-  geom_point(size = 3, colour = "green", data = filter(cd4.mansc1.snord73.mean, Id %in% c("oligo_1889", "oligo_4271"))) + #RPS3Amut
-  geom_point(size = 3, colour = "orange", data = filter(cd4.mansc1.snord73.mean, Id %in% c("oligo_1890", "oligo_4272"))) + #RPS3Awt
+  geom_point(colour = "red", data = . %>% filter(Id %in% c("MANSC1mut_a", "MANSC1mut_b"))) +
+  geom_point(colour = "blue", data = . %>% filter(Id %in% c("MANSC1wt_a", "MANSC1wt_b"))) + 
+  geom_point(colour = "darkgreen", data = . %>% filter(Id %in% c("RPS3Amut_a", "RPS3Amut_b"))) + 
+  geom_point(colour = "orange", data = . %>% filter(Id %in% c("RPS3Awt_a", "RPS3Awt_b"))) + 
   theme_light(base_size = 11) +
   xlab("Snord73a normalized counts (log10)") +
   ylab("Mansc1 normalized counts (log10)") 
 
 # Plot MA plot
-cd4.mansc1.snord73.mean %>% 
+p2 = cd4.mansc1.snord73.mean %>% 
   ggplot(aes(x = A, y = M)) +
   geom_point(colour = alpha("grey", 0.5)) +
-  geom_point(size = 3, colour = "red", data = filter(cd4.mansc1.snord73.mean, Id %in% c("oligo_1895", "oligo_4277"))) + #MANSC1mut
-  geom_point(size = 3, colour = "blue", data = filter(cd4.mansc1.snord73.mean, Id %in% c("oligo_1896", "oligo_4278"))) + #MANSC1wt
-  geom_point(size = 3, colour = "green", data = filter(cd4.mansc1.snord73.mean, Id %in% c("oligo_1889", "oligo_4271"))) + #RPS3Amut
-  geom_point(size = 3, colour = "orange", data = filter(cd4.mansc1.snord73.mean, Id %in% c("oligo_1890", "oligo_4272"))) + #RPS3Awt
+  geom_point(colour = "red", data = . %>% filter(Id %in% c("MANSC1mut_a", "MANSC1mut_b"))) +
+  geom_point(colour = "blue", data = . %>% filter(Id %in% c("MANSC1wt_a", "MANSC1wt_b"))) + 
+  geom_point(colour = "darkgreen", data = . %>% filter(Id %in% c("RPS3Amut_a", "RPS3Amut_b"))) + 
+  geom_point(colour = "orange", data = . %>% filter(Id %in% c("RPS3Awt_a", "RPS3Awt_b"))) + 
   theme_light(base_size = 11) +
   ylim(-3, 3) +
   xlab(expression(paste("Mean normalized counts ", '(', log[2], ")"))) +
   ylab(expression(paste("Fold change ", '(', log[2], " Mansc1/Snord73a)")))
+
+p1 + p2
 ```
 
-### Statistical testing
+#### Calculate statistics 
 ```{r}
 # Create new DESeq2 object with poor samples removed
 ddsMat.subset = ddsMat.cd4[,which(colnames(assay(ddsMat.cd4)) %in% c("cd4_snord73_1", "cd4_snord73_2", "cd4_snord73_3", "cd4_mansc1_1", "cd4_mansc1_2", "cd4_mansc1_3"))]
@@ -349,6 +474,7 @@ cd4.mansc.snord.res %>%
 # Show quick plot of significance (Unknown oligo's)
 DESeq2::plotMA(cd4.mansc.snord.res, ylim = c(-3,3))
 ```
+
 
 ## Filter low count oligos (visualization)
 ```{r}

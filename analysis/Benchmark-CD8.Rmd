@@ -39,28 +39,27 @@ Next reads were subjected to an alignment against the Oligo library using a DNA 
 ## Data import & preprocessing
 We are going to first import the merged counts tables that is outputted from the Nextflow pipeline. This table already has the raw counts summarised from the alignments and merged into a single matrix.
 
-
-### Import oligos
--   oligo\_1899 (MART1\_ELA)
--   oligo\_4281 (MART1\_ELA)
--   oligo\_912 (MART1)
--   oligo\_3294 (MART1)
--   oligo\_1887 (CDK4mut)
--   oligo\_4269 (CDK4mut)
--   oligo\_1888 (CDK4wt)
--   oligo\_4270 (CDK4wt)
--   oligo\_1889 (RPS3Amut)
--   oligo\_4271 (RPS3Amut)
--   oligo\_1890 (RPS3Awt)
--   oligo\_4272 (RPS3Awt)
--   oligo\_1895 (MANSC1mut)
--   oligo\_4277 (MANSC1mut)
--   oligo\_1896 (MANSC1wt)
--   oligo\_4278 (MANSC1wt)
-
 ```{r}
 # Import counts
-cd8.counts = readRDS('../data/CD8-counts.rda')
+cd8.counts = readRDS('../data/CD8-counts.rda') %>% 
+  rownames_to_column("Id") %>% 
+  mutate(Id = recode(Id, oligo_1899 = "MART1_ELA_a",
+                         oligo_4281 = "MART1_ELA_b",
+                         oligo_913 = "MART1_a",
+                         oligo_3295 = "MART1_b",
+                         oligo_1887 = "CDK4mut_a",
+                         oligo_4269 = "CDK4mut_b",
+                         oligo_1888 = "CDK4wt_a",
+                         oligo_4270 = "CDK4wt_b",
+                         oligo_1889 = "RPS3Amut_a",
+                         oligo_4271 = "RPS3Amut_b",
+                         oligo_1890 = "RPS3Awt_a",
+                         oligo_4272 = "RPS3Awt_b",
+                         oligo_1895 = "MANSC1mut_a",
+                         oligo_4277 = "MANSC1mut_b",
+                         oligo_1896 = "MANSC1wt_a",
+                         oligo_4278 = "MANSC1wt_b")) %>% 
+  column_to_rownames("Id")
 
 # Convert to long format
 cd8.counts.long = cd8.counts %>% 
@@ -216,7 +215,7 @@ cd8.counts %>%
 ```{r}
 # Calculate the variance between oligo-replicates
 oligo.variance = cd8.counts %>% 
-  rownames_to_column("Id") %>%
+  rownames_to_column("Id") %>% 
   mutate_if(is.numeric, funs(log10)) %>% 
   left_join(oligo.genes, by = "Id") %>% 
   group_by(oligoGroup) %>% 
@@ -283,7 +282,7 @@ cd8.norm.long = cd8.norm %>%
 ### Plot boxplots
 ```{r}
 # Pre-normalized
-cd8.counts.long %>% 
+p1 = cd8.counts.long %>% 
   ggplot(aes(x = sample, y = log10(counts + 1))) +
   geom_boxplot() +
   theme_light(base_size = 11) +
@@ -293,7 +292,7 @@ cd8.counts.long %>%
   ggtitle('Un-normalized data')
 
 # After normalized
-cd8.norm.long %>% 
+p2 = cd8.norm.long %>% 
   ggplot(aes(x = sample, y = log10(norm.counts + 1))) +
   geom_boxplot() +
   theme_light(base_size = 11) +
@@ -301,6 +300,9 @@ cd8.norm.long %>%
   xlab("") +
   ylab("Normalized counts (log10)") +
   ggtitle('Median-normalized data')
+
+# Plot side-by side
+p1 + p2
 ```
 
 ### Plot normalized histogram
@@ -318,8 +320,6 @@ cd8.norm.long %>%
 
 ## MART1/1D3 dropout
 
-Oligo Id's for the positive control dropout's are: - oligo\_1899 (MART1\_ELA) - oligo\_4281 (MART1\_ELA) - oligo\_912 (MART1) - oligo\_3294 (MART1)
-
 ```{r}
 # Get average between the replicates
 id3.mean = cd8.norm %>% 
@@ -329,28 +329,31 @@ id3.mean = cd8.norm %>%
          A = (log2(ID3_mean) + log2(Mock_mean)) / 2) 
 
 # Plot scatterplot
-id3.mean %>% 
+p1 = id3.mean %>% 
   ggplot(aes(x = log10(Mock_mean), y = log10(ID3_mean))) +
   geom_point(colour = alpha("grey", 0.7)) +
-  geom_point(colour = alpha("red", 0.7), data = filter(id3.mean, Id %in% c("oligo_4281", "oligo_1899"))) +
-  geom_point(colour = alpha("lightblue", 0.7), data = filter(id3.mean, Id %in% c("oligo_913", "oligo_3295"))) +
-  geom_point(colour = alpha("orange", 0.7), data = filter(id3.mean, Id %in% c("oligo_1888", "oligo_4270"))) +
-  geom_point(colour = alpha("darkgreen", 0.7), data = filter(id3.mean, Id %in% c("oligo_1887", "oligo_4269"))) +
+  geom_point(colour = alpha("red", 0.7), data = . %>% filter(Id %in% c("MART1_ELA_a", "MART1_ELA_b"))) +
+  geom_point(colour = alpha("lightblue", 0.7), data = . %>% filter(Id %in% c("MART1_a", "MART1_b"))) +
+  geom_point(colour = alpha("orange", 0.7), data = . %>% filter(Id %in% c("CDK4wt_a", "CDK4wt_b"))) +
+  geom_point(colour = alpha("darkgreen", 0.7), data = . %>% filter(Id %in% c("CDK4mut_a", "CDK4mut_b"))) +
   theme_light(base_size = 11) +
   xlab("Mock normalized counts (log10)") +
   ylab("1D3 normalized counts (log10)")
 
 # Plot MA plot
-id3.mean %>% 
+p2 = id3.mean %>% 
   ggplot(aes(x = A, y = M)) +
   geom_point(colour = alpha("grey", 0.5)) +
-  geom_point(colour = alpha("red", 0.7), data = filter(id3.mean, Id %in% c("oligo_4281", "oligo_1899"))) +
-  geom_point(colour = alpha("lightblue", 0.7), data = filter(id3.mean, Id %in% c("oligo_913", "oligo_3295"))) +
-  geom_point(colour = alpha("orange", 0.7), data = filter(id3.mean, Id %in% c("oligo_1888", "oligo_4270"))) +
-  geom_point(colour = alpha("darkgreen", 0.7), data = filter(id3.mean, Id %in% c("oligo_1887", "oligo_4269"))) +
+  geom_point(colour = alpha("red", 0.7), data = . %>% filter(Id %in% c("MART1_ELA_a", "MART1_ELA_b"))) +
+  geom_point(colour = alpha("lightblue", 0.7), data = . %>% filter(Id %in% c("MART1_a", "MART1_b"))) +
+  geom_point(colour = alpha("orange", 0.7), data = . %>% filter(Id %in% c("CDK4wt_a", "CDK4wt_b"))) +
+  geom_point(colour = alpha("darkgreen", 0.7), data = . %>% filter(Id %in% c("CDK4mut_a", "CDK4mut_b"))) +
   theme_light(base_size = 11) +
   xlab(expression(paste("Mean normalized counts ", '(', log[2], ")"))) +
   ylab(expression(paste("Fold change ", '(', log[2], " 1D3/Mock)"))) 
+
+# Plot side-by side
+p1 + p2
 ```
 
 #### Calculate statistics 
@@ -374,15 +377,13 @@ id3.mock.res = results(ddsMat.subset, alpha = 0.05)
 id3.mock.res %>% 
   as.data.frame() %>% 
   rownames_to_column("Id") %>% 
-  filter(padj < 0.05)
+  filter(padj < 0.05, abs(log2FoldChange) > 1)
 
 # Show quick plot of significance ()
 DESeq2::plotMA(id3.mock.res, ylim = c(-3, 3))
 ```
 
 ## CDK4/53 dropout
-
-Oligo Id's for the positive control dropout's are: - oligo\_1899 (MART1\_ELA) - oligo\_4281 (MART1\_ELA) - oligo\_912 (MART1) - oligo\_3294 (MART1)
 
 ```{r}
 # Get average between the replicates
@@ -393,28 +394,30 @@ cdk4.mean = cd8.norm %>%
          A = (log2(CDK4_mean) + log2(Mock_mean)) / 2) 
 
 # Plot scatterplot
-cdk4.mean %>% 
+p1 = cdk4.mean %>% 
   ggplot(aes(x = log10(Mock_mean), y = log10(CDK4_mean))) +
   geom_point(colour = alpha("grey", 0.7)) +
-  geom_point(colour = alpha("red", 0.7), data = filter(cdk4.mean, Id %in% c("oligo_4281", "oligo_1899"))) +
-  geom_point(colour = alpha("orange", 0.7), data = filter(cdk4.mean, Id %in% c("oligo_1888", "oligo_4270"))) +
-  geom_point(colour = alpha("lightblue", 0.7), data = filter(cdk4.mean, Id %in% c("oligo_913", "oligo_3295"))) +
-  geom_point(colour = alpha("darkgreen", 0.7), data = filter(cdk4.mean, Id %in% c("oligo_1887", "oligo_4269"))) +
+  geom_point(colour = alpha("red", 0.7), data = . %>% filter(Id %in% c("MART1_ELA_a", "MART1_ELA_b"))) +
+  geom_point(colour = alpha("lightblue", 0.7), data = . %>% filter(Id %in% c("MART1_a", "MART1_b"))) +
+  geom_point(colour = alpha("orange", 0.7), data = . %>% filter(Id %in% c("CDK4wt_a", "CDK4wt_b"))) +
+  geom_point(colour = alpha("darkgreen", 0.7), data = . %>% filter(Id %in% c("CDK4mut_a", "CDK4mut_b"))) +
   theme_light(base_size = 11) +
   xlab("Mock normalized counts (log10)") +
   ylab("CDK4 normalized counts (log10)")
 
 # Plot MA plot
-cdk4.mean %>% 
+p2 = cdk4.mean %>% 
   ggplot(aes(x = A, y = M)) +
   geom_point(colour = alpha("grey", 0.5)) +
-  geom_point(colour = alpha("red", 0.7), data = filter(cdk4.mean, Id %in% c("oligo_4281", "oligo_1899"))) +
-  geom_point(colour = alpha("orange", 0.7), data = filter(cdk4.mean, Id %in% c("oligo_1888", "oligo_4270"))) +
-  geom_point(colour = alpha("lightblue", 0.7), data = filter(cdk4.mean, Id %in% c("oligo_913", "oligo_3295"))) +
-  geom_point(colour = alpha("darkgreen", 0.7), data = filter(cdk4.mean, Id %in% c("oligo_1887", "oligo_4269"))) +
+  geom_point(colour = alpha("red", 0.7), data = . %>% filter(Id %in% c("MART1_ELA_a", "MART1_ELA_b"))) +
+  geom_point(colour = alpha("lightblue", 0.7), data = . %>% filter(Id %in% c("MART1_a", "MART1_b"))) +
+  geom_point(colour = alpha("orange", 0.7), data = . %>% filter(Id %in% c("CDK4wt_a", "CDK4wt_b"))) +
+  geom_point(colour = alpha("darkgreen", 0.7), data = . %>% filter(Id %in% c("CDK4mut_a", "CDK4mut_b"))) +
   theme_light(base_size = 11) +
   xlab(expression(paste("Mean normalized counts ", '(', log[2], ")"))) +
   ylab(expression(paste("Fold change ", '(', log[2], " CDK4/Mock)"))) 
+
+p1 + p2
 ```
 
 #### Calculate statistics 
@@ -438,10 +441,10 @@ cdk4.mock.res = results(ddsMat.subset, alpha = 0.05)
 cdk4.mock.res %>% 
   as.data.frame() %>% 
   rownames_to_column("Id") %>% 
-  filter(padj < 0.05)
+  filter(padj < 0.05 & abs(log2FoldChange) > 1)
 
 # Show quick plot of significance ()
-DESeq2::plotMA(cdk4.mock.res)
+DESeq2::plotMA(cdk4.mock.res, ylim = c(-5,5))
 ```
 
 ## MART1/CDK4 dropout
@@ -458,28 +461,30 @@ id3.mean = cd8.norm %>%
          A = (log2(ID3_mean) + log2(CDK4_mean)) / 2) 
 
 # Plot scatterplot
-id3.mean %>% 
+p1 = id3.mean %>% 
   ggplot(aes(x = log10(CDK4_mean), y = log10(ID3_mean))) +
   geom_point(colour = alpha("grey", 0.7)) +
-  geom_point(colour = alpha("red", 0.7), data = filter(id3.mean, Id %in% c("oligo_4281", "oligo_1899"))) +
-  geom_point(colour = alpha("lightblue", 0.7), data = filter(id3.mean, Id %in% c("oligo_913", "oligo_3295"))) +
-  geom_point(colour = alpha("orange", 0.7), data = filter(id3.mean, Id %in% c("oligo_1888", "oligo_4270"))) +
-  geom_point(colour = alpha("darkgreen", 0.7), data = filter(id3.mean, Id %in% c("oligo_1887", "oligo_4269"))) +
+  geom_point(colour = alpha("red", 0.7), data = . %>% filter(Id %in% c("MART1_ELA_a", "MART1_ELA_b"))) +
+  geom_point(colour = alpha("lightblue", 0.7), data = . %>% filter(Id %in% c("MART1_a", "MART1_b"))) +
+  geom_point(colour = alpha("orange", 0.7), data = . %>% filter(Id %in% c("CDK4wt_a", "CDK4wt_b"))) +
+  geom_point(colour = alpha("darkgreen", 0.7), data = . %>% filter(Id %in% c("CDK4mut_a", "CDK4mut_b"))) +
   theme_light(base_size = 11) +
   xlab("CDK4 normalized counts (log10)") +
   ylab("1D3 normalized counts (log10)") 
 
 # Plot MA plot
-id3.mean %>% 
+p2 = id3.mean %>% 
   ggplot(aes(x = A, y = M)) +
   geom_point(colour = alpha("grey", 0.5)) +
-  geom_point(colour = alpha("red", 0.7), data = filter(id3.mean, Id %in% c("oligo_4281", "oligo_1899"))) +
-  geom_point(colour = alpha("lightblue", 0.7), data = filter(id3.mean, Id %in% c("oligo_913", "oligo_3295"))) +
-  geom_point(colour = alpha("orange", 0.7), data = filter(id3.mean, Id %in% c("oligo_1888", "oligo_4270"))) +
-  geom_point(colour = alpha("darkgreen", 0.7), data = filter(id3.mean, Id %in% c("oligo_1887", "oligo_4269"))) +
+  geom_point(colour = alpha("red", 0.7), data = . %>% filter(Id %in% c("MART1_ELA_a", "MART1_ELA_b"))) +
+  geom_point(colour = alpha("lightblue", 0.7), data = . %>% filter(Id %in% c("MART1_a", "MART1_b"))) +
+  geom_point(colour = alpha("orange", 0.7), data = . %>% filter(Id %in% c("CDK4wt_a", "CDK4wt_b"))) +
+  geom_point(colour = alpha("darkgreen", 0.7), data = . %>% filter(Id %in% c("CDK4mut_a", "CDK4mut_b"))) +
   theme_light(base_size = 11) +
   xlab(expression(paste("Mean normalized counts ", '(', log[2], ")"))) +
   ylab(expression(paste("Fold change ", '(', log[2], " 1D3/CDK4)"))) 
+
+p1 + p2
 ```
 
 #### Calculate statistics 
@@ -526,28 +531,28 @@ d10.mean = cd8.norm %>%
 d10.scatter = d10.mean %>% 
   ggplot(aes(x = log10(Mock_mean), y = log10(D10_mean))) +
   geom_point(colour = alpha("grey", 0.7)) +
-  geom_point(colour = alpha("red", 0.7), data = filter(d10.mean, Id %in% c("oligo_4281", "oligo_1899"))) +
-  geom_point(colour = alpha("orange", 0.7), data = filter(d10.mean, Id %in% c("oligo_1888", "oligo_4270"))) +
-  geom_point(colour = alpha("lightblue", 0.7), data = filter(d10.mean, Id %in% c("oligo_913", "oligo_3295"))) +
-  geom_point(colour = alpha("darkgreen", 0.7), data = filter(d10.mean, Id %in% c("oligo_1887", "oligo_4269"))) +
+  geom_point(colour = alpha("red", 0.7), data = . %>% filter(Id %in% c("MART1_ELA_a", "MART1_ELA_b"))) +
+  geom_point(colour = alpha("lightblue", 0.7), data = . %>% filter(Id %in% c("MART1_a", "MART1_b"))) +
+  geom_point(colour = alpha("orange", 0.7), data = . %>% filter(Id %in% c("CDK4wt_a", "CDK4wt_b"))) +
+  geom_point(colour = alpha("darkgreen", 0.7), data = . %>% filter(Id %in% c("CDK4mut_a", "CDK4mut_b"))) +
   theme_light(base_size = 11) +
   xlab("Mock normalized counts (log10)") +
   ylab("D10 normalized counts (log10)")
-d10.scatter
 
 # Plot MA plot
 d10.ma = d10.mean %>% 
   ggplot(aes(x = A, y = M)) +
   geom_point(colour = alpha("grey", 0.5)) +
-  geom_point(colour = alpha("red", 0.7), data = filter(d10.mean, Id %in% c("oligo_4281", "oligo_1899"))) +
-  geom_point(colour = alpha("orange", 0.7), data = filter(d10.mean, Id %in% c("oligo_1888", "oligo_4270"))) +
-  geom_point(colour = alpha("lightblue", 0.7), data = filter(d10.mean, Id %in% c("oligo_913", "oligo_3295"))) +
-  geom_point(colour = alpha("darkgreen", 0.7), data = filter(d10.mean, Id %in% c("oligo_1887", "oligo_4269"))) +
+  geom_point(colour = alpha("red", 0.7), data = . %>% filter(Id %in% c("MART1_ELA_a", "MART1_ELA_b"))) +
+  geom_point(colour = alpha("lightblue", 0.7), data = . %>% filter(Id %in% c("MART1_a", "MART1_b"))) +
+  geom_point(colour = alpha("orange", 0.7), data = . %>% filter(Id %in% c("CDK4wt_a", "CDK4wt_b"))) +
+  geom_point(colour = alpha("darkgreen", 0.7), data = . %>% filter(Id %in% c("CDK4mut_a", "CDK4mut_b"))) +
   theme_light(base_size = 11) +
   ylim(-5, 5) +
   xlab(expression(paste("Mean normalized counts ", '(', log[2], ")"))) +
   ylab(expression(paste("Fold change ", '(', log[2], " D10/Mock)")))
-d10.ma
+
+d10.scatter + d10.ma
 ```
 
 #### Calculate statistics 
@@ -571,10 +576,10 @@ d10.mock.res = results(ddsMat.subset, alpha = 0.05)
 d10.mock.res %>% 
   as.data.frame() %>% 
   rownames_to_column("Id") %>% 
-  filter(padj < 0.05)
+  filter(padj < 0.05 & abs(log2FoldChange) > 1)
 
 # Show quick plot of significance ()
-DESeq2::plotMA(d10.mock.res & abs(log2FoldChange) > 1)
+DESeq2::plotMA(d10.mock.res)
 ```
 
 
@@ -592,28 +597,28 @@ d100.mean = cd8.norm %>%
 d100.scatter = d100.mean %>% 
   ggplot(aes(x = log10(Mock_mean), y = log10(D100_mean))) +
   geom_point(colour = alpha("grey", 0.7)) +
-  geom_point(colour = alpha("red", 0.7), data = filter(d100.mean, Id %in% c("oligo_4281", "oligo_1899"))) +
-  geom_point(colour = alpha("orange", 0.7), data = filter(d100.mean, Id %in% c("oligo_1888", "oligo_4270"))) +
-  geom_point(colour = alpha("lightblue", 0.7), data = filter(d100.mean, Id %in% c("oligo_913", "oligo_3295"))) +
-  geom_point(colour = alpha("darkgreen", 0.7), data = filter(d100.mean, Id %in% c("oligo_1887", "oligo_4269"))) +
+  geom_point(colour = alpha("red", 0.7), data = . %>% filter(Id %in% c("MART1_ELA_a", "MART1_ELA_b"))) +
+  geom_point(colour = alpha("lightblue", 0.7), data = . %>% filter(Id %in% c("MART1_a", "MART1_b"))) +
+  geom_point(colour = alpha("orange", 0.7), data = . %>% filter(Id %in% c("CDK4wt_a", "CDK4wt_b"))) +
+  geom_point(colour = alpha("darkgreen", 0.7), data = . %>% filter(Id %in% c("CDK4mut_a", "CDK4mut_b"))) +
   theme_light(base_size = 11) +
   xlab("Mock normalized counts (log10)") +
   ylab("D100 normalized counts (log10)")
-d100.scatter
 
 # Plot MA plot
 d100.ma = d100.mean %>% 
   ggplot(aes(x = A, y = M)) +
   geom_point(colour = alpha("grey", 0.5)) +
-  geom_point(colour = alpha("red", 0.7), data = filter(d100.mean, Id %in% c("oligo_4281", "oligo_1899"))) +
-  geom_point(colour = alpha("orange", 0.7), data = filter(d100.mean, Id %in% c("oligo_1888", "oligo_4270"))) +
-  geom_point(colour = alpha("lightblue", 0.7), data = filter(d100.mean, Id %in% c("oligo_913", "oligo_3295"))) +
-  geom_point(colour = alpha("darkgreen", 0.7), data = filter(d100.mean, Id %in% c("oligo_1887", "oligo_4269"))) +
+  geom_point(colour = alpha("red", 0.7), data = . %>% filter(Id %in% c("MART1_ELA_a", "MART1_ELA_b"))) +
+  geom_point(colour = alpha("lightblue", 0.7), data = . %>% filter(Id %in% c("MART1_a", "MART1_b"))) +
+  geom_point(colour = alpha("orange", 0.7), data = . %>% filter(Id %in% c("CDK4wt_a", "CDK4wt_b"))) +
+  geom_point(colour = alpha("darkgreen", 0.7), data = . %>% filter(Id %in% c("CDK4mut_a", "CDK4mut_b"))) +
   theme_light(base_size = 11) +
   ylim(-5, 5) +
   xlab(expression(paste("Mean normalized counts ", '(', log[2], ")"))) +
   ylab(expression(paste("Fold change ", '(', log[2], " D100/Mock)")))
-d100.ma
+
+d100.scatter + d100.ma
 ```
 
 #### Calculate statistics 
@@ -658,28 +663,28 @@ d300.mean = cd8.norm %>%
 d300.scatter = d300.mean %>% 
   ggplot(aes(x = log10(Mock_mean), y = log10(D300_mean))) +
   geom_point(colour = alpha("grey", 0.7)) +
-  geom_point(colour = alpha("red", 0.7), data = filter(d300.mean, Id %in% c("oligo_4281", "oligo_1899"))) +
-  geom_point(colour = alpha("orange", 0.7), data = filter(d300.mean, Id %in% c("oligo_1888", "oligo_4270"))) +
-  geom_point(colour = alpha("lightblue", 0.7), data = filter(d300.mean, Id %in% c("oligo_913", "oligo_3295"))) +
-  geom_point(colour = alpha("darkgreen", 0.7), data = filter(d300.mean, Id %in% c("oligo_1887", "oligo_4269"))) +
+  geom_point(colour = alpha("red", 0.7), data = . %>% filter(Id %in% c("MART1_ELA_a", "MART1_ELA_b"))) +
+  geom_point(colour = alpha("lightblue", 0.7), data = . %>% filter(Id %in% c("MART1_a", "MART1_b"))) +
+  geom_point(colour = alpha("orange", 0.7), data = . %>% filter(Id %in% c("CDK4wt_a", "CDK4wt_b"))) +
+  geom_point(colour = alpha("darkgreen", 0.7), data = . %>% filter(Id %in% c("CDK4mut_a", "CDK4mut_b"))) +
   theme_light(base_size = 11) +
   xlab("Mock normalized counts (log10)") +
   ylab("D300 normalized counts (log10)")
-d300.scatter
 
 # Plot MA plot
 d300.ma = d300.mean %>% 
   ggplot(aes(x = A, y = M)) +
   geom_point(colour = alpha("grey", 0.5)) +
-  geom_point(colour = alpha("red", 0.7), data = filter(d300.mean, Id %in% c("oligo_4281", "oligo_1899"))) +
-  geom_point(colour = alpha("orange", 0.7), data = filter(d300.mean, Id %in% c("oligo_1888", "oligo_4270"))) +
-  geom_point(colour = alpha("lightblue", 0.7), data = filter(d300.mean, Id %in% c("oligo_913", "oligo_3295"))) +
-  geom_point(colour = alpha("darkgreen", 0.7), data = filter(d300.mean, Id %in% c("oligo_1887", "oligo_4269"))) +
+  geom_point(colour = alpha("red", 0.7), data = . %>% filter(Id %in% c("MART1_ELA_a", "MART1_ELA_b"))) +
+  geom_point(colour = alpha("lightblue", 0.7), data = . %>% filter(Id %in% c("MART1_a", "MART1_b"))) +
+  geom_point(colour = alpha("orange", 0.7), data = . %>% filter(Id %in% c("CDK4wt_a", "CDK4wt_b"))) +
+  geom_point(colour = alpha("darkgreen", 0.7), data = . %>% filter(Id %in% c("CDK4mut_a", "CDK4mut_b"))) +
   theme_light(base_size = 11) +
   ylim(-5, 5) +
   xlab(expression(paste("Mean normalized counts ", '(', log[2], ")"))) +
   ylab(expression(paste("Fold change ", '(', log[2], " D300/Mock)")))
-d300.ma
+
+d300.scatter + d300.ma
 ```
 
 #### Calculate statistics 
@@ -724,28 +729,28 @@ d1000.mean = cd8.norm %>%
 d1000.scatter = d1000.mean %>% 
   ggplot(aes(x = log10(Mock_mean), y = log10(D1000_mean))) +
   geom_point(colour = alpha("grey", 0.7)) +
-  geom_point(colour = alpha("red", 0.7), data = filter(d1000.mean, Id %in% c("oligo_4281", "oligo_1899"))) +
-  geom_point(colour = alpha("orange", 0.7), data = filter(d1000.mean, Id %in% c("oligo_1888", "oligo_4270"))) +
-  geom_point(colour = alpha("lightblue", 0.7), data = filter(d1000.mean, Id %in% c("oligo_913", "oligo_3295"))) +
-  geom_point(colour = alpha("darkgreen", 0.7), data = filter(d1000.mean, Id %in% c("oligo_1887", "oligo_4269"))) +
+  geom_point(colour = alpha("red", 0.7), data = . %>% filter(Id %in% c("MART1_ELA_a", "MART1_ELA_b"))) +
+  geom_point(colour = alpha("lightblue", 0.7), data = . %>% filter(Id %in% c("MART1_a", "MART1_b"))) +
+  geom_point(colour = alpha("orange", 0.7), data = . %>% filter(Id %in% c("CDK4wt_a", "CDK4wt_b"))) +
+  geom_point(colour = alpha("darkgreen", 0.7), data = . %>% filter(Id %in% c("CDK4mut_a", "CDK4mut_b"))) +
   theme_light(base_size = 11) +
   xlab("Mock normalized counts (log10)") +
   ylab("D1000 normalized counts (log10)")
-d1000.scatter
 
 # Plot MA plot
 d1000.ma = d1000.mean %>% 
   ggplot(aes(x = A, y = M)) +
   geom_point(colour = alpha("grey", 0.5)) +
-  geom_point(colour = alpha("red", 0.7), data = filter(d1000.mean, Id %in% c("oligo_4281", "oligo_1899"))) +
-  geom_point(colour = alpha("orange", 0.7), data = filter(d1000.mean, Id %in% c("oligo_1888", "oligo_4270"))) +
-  geom_point(colour = alpha("lightblue", 0.7), data = filter(d1000.mean, Id %in% c("oligo_913", "oligo_3295"))) +
-  geom_point(colour = alpha("darkgreen", 0.7), data = filter(d1000.mean, Id %in% c("oligo_1887", "oligo_4269"))) +
+  geom_point(colour = alpha("red", 0.7), data = . %>% filter(Id %in% c("MART1_ELA_a", "MART1_ELA_b"))) +
+  geom_point(colour = alpha("lightblue", 0.7), data = . %>% filter(Id %in% c("MART1_a", "MART1_b"))) +
+  geom_point(colour = alpha("orange", 0.7), data = . %>% filter(Id %in% c("CDK4wt_a", "CDK4wt_b"))) +
+  geom_point(colour = alpha("darkgreen", 0.7), data = . %>% filter(Id %in% c("CDK4mut_a", "CDK4mut_b"))) +
   theme_light(base_size = 11) +
   ylim(-5, 5) +
   xlab(expression(paste("Mean normalized counts ", '(', log[2], ")"))) +
   ylab(expression(paste("Fold change ", '(', log[2], " D1000/Mock)")))
-d1000.ma
+
+d1000.scatter + d1000.ma
 ```
 
 #### Calculate statistics 
@@ -769,7 +774,7 @@ d1000.mock.res = results(ddsMat.subset, alpha = 0.05)
 d1000.mock.res %>% 
   as.data.frame() %>% 
   rownames_to_column("Id") %>% 
-  filter(padj < 0.05)
+  filter(padj < 0.05 & abs(log2FoldChange) > 1)
 
 # Show quick plot of significance ()
 DESeq2::plotMA(d1000.mock.res)
@@ -900,10 +905,10 @@ id3.mean = cd8.norm.fil %>%
 id3.mean %>% 
   ggplot(aes(x = A, y = M)) +
   geom_point(colour = alpha("grey", 0.5)) +
-  geom_point(size = 3.5, colour = rgb(237,157,148, max=255), data = filter(id3.mean, Id %in% c("oligo_4281", "oligo_1899"))) + #MART1-Ag
-  geom_point(size = 3.5, colour = rgb(199,150,149, max=255), data = filter(id3.mean, Id %in% c("oligo_913", "oligo_3295"))) + #MART1-W
-  geom_point(size = 3.5, colour = rgb(102,165,165, max=255), data = filter(id3.mean, Id %in% c("oligo_1887", "oligo_4269"))) + #CDK4-Ag
-  geom_point(size = 3.5, colour = rgb(88,121,163, max=255), data = filter(id3.mean, Id %in% c("oligo_1888", "oligo_4270"))) + #CDK4-WT
+  geom_point(colour = alpha("red", 0.7), data = . %>% filter(Id %in% c("MART1_ELA_a", "MART1_ELA_b"))) +
+  geom_point(colour = alpha("lightblue", 0.7), data = . %>% filter(Id %in% c("MART1_a", "MART1_b"))) +
+  geom_point(colour = alpha("orange", 0.7), data = . %>% filter(Id %in% c("CDK4wt_a", "CDK4wt_b"))) +
+  geom_point(colour = alpha("darkgreen", 0.7), data = . %>% filter(Id %in% c("CDK4mut_a", "CDK4mut_b"))) +
   theme_light(base_size = 11) +
   xlab(expression(paste("Mean normalized counts ", '(', log[2], ")"))) +
   ylab(expression(paste("Fold change ", '(', log[2], " 1D3/CDK4)"))) 
@@ -920,10 +925,10 @@ d10.mean = cd8.norm.fil %>%
 d10.plot = d10.mean %>% 
   ggplot(aes(x = A, y = M)) +
   geom_point(colour = alpha("grey", 0.5)) +
-  geom_point(size = 4.5, colour = rgb(237,157,148, max=255), data = filter(d10.mean, Id %in% c("oligo_4281", "oligo_1899"))) + #MART1-Ag
-  geom_point(size = 4.5, colour = rgb(199,150,149, max=255), data = filter(d10.mean, Id %in% c("oligo_913", "oligo_3295"))) + #MART1-W
-  geom_point(size = 4.5, colour = rgb(102,165,165, max=255), data = filter(d10.mean, Id %in% c("oligo_1887", "oligo_4269"))) + #CDK4-Ag
-  geom_point(size = 4.5, colour = rgb(88,121,163, max=255), data = filter(d10.mean, Id %in% c("oligo_1888", "oligo_4270"))) + #CDK4-WT
+  geom_point(colour = alpha("red", 0.7), data = . %>% filter(Id %in% c("MART1_ELA_a", "MART1_ELA_b"))) +
+  geom_point(colour = alpha("lightblue", 0.7), data = . %>% filter(Id %in% c("MART1_a", "MART1_b"))) +
+  geom_point(colour = alpha("orange", 0.7), data = . %>% filter(Id %in% c("CDK4wt_a", "CDK4wt_b"))) +
+  geom_point(colour = alpha("darkgreen", 0.7), data = . %>% filter(Id %in% c("CDK4mut_a", "CDK4mut_b"))) +
   theme_light(base_size = 11) +
   ylim(-5, 1) +
   xlim(7, 14) +
@@ -941,10 +946,10 @@ d100.mean = cd8.norm.fil %>%
 d100.plot = d100.mean %>% 
   ggplot(aes(x = A, y = M)) +
   geom_point(colour = alpha("grey", 0.5)) +
-  geom_point(size = 4.5, colour = rgb(237,157,148, max=255), data = filter(d100.mean, Id %in% c("oligo_4281", "oligo_1899"))) + #MART1-Ag
-  geom_point(size = 4.5, colour = rgb(199,150,149, max=255), data = filter(d100.mean, Id %in% c("oligo_913", "oligo_3295"))) + #MART1-W
-  geom_point(size = 4.5, colour = rgb(102,165,165, max=255), data = filter(d100.mean, Id %in% c("oligo_1887", "oligo_4269"))) + #CDK4-Ag
-  geom_point(size = 4.5, colour = rgb(88,121,163, max=255), data = filter(d100.mean, Id %in% c("oligo_1888", "oligo_4270"))) + #CDK4-WT
+  geom_point(colour = alpha("red", 0.7), data = . %>% filter(Id %in% c("MART1_ELA_a", "MART1_ELA_b"))) +
+  geom_point(colour = alpha("lightblue", 0.7), data = . %>% filter(Id %in% c("MART1_a", "MART1_b"))) +
+  geom_point(colour = alpha("orange", 0.7), data = . %>% filter(Id %in% c("CDK4wt_a", "CDK4wt_b"))) +
+  geom_point(colour = alpha("darkgreen", 0.7), data = . %>% filter(Id %in% c("CDK4mut_a", "CDK4mut_b"))) +
   theme_light(base_size = 11) +
   ylim(-5, 1) +
   xlim(7, 14) +
@@ -962,10 +967,10 @@ d300.mean = cd8.norm.fil %>%
 d300.plot = d300.mean %>% 
   ggplot(aes(x = A, y = M)) +
   geom_point(colour = alpha("grey", 0.5)) +
-  geom_point(size = 4.5, colour = rgb(237,157,148, max=255), data = filter(d300.mean, Id %in% c("oligo_4281", "oligo_1899"))) + #MART1-Ag
-  geom_point(size = 4.5, colour = rgb(199,150,149, max=255), data = filter(d300.mean, Id %in% c("oligo_913", "oligo_3295"))) + #MART1-W
-  geom_point(size = 4.5, colour = rgb(102,165,165, max=255), data = filter(d300.mean, Id %in% c("oligo_1887", "oligo_4269"))) + #CDK4-Ag
-  geom_point(size = 4.5, colour = rgb(88,121,163, max=255), data = filter(d300.mean, Id %in% c("oligo_1888", "oligo_4270"))) + #CDK4-WT
+  geom_point(colour = alpha("red", 0.7), data = . %>% filter(Id %in% c("MART1_ELA_a", "MART1_ELA_b"))) +
+  geom_point(colour = alpha("lightblue", 0.7), data = . %>% filter(Id %in% c("MART1_a", "MART1_b"))) +
+  geom_point(colour = alpha("orange", 0.7), data = . %>% filter(Id %in% c("CDK4wt_a", "CDK4wt_b"))) +
+  geom_point(colour = alpha("darkgreen", 0.7), data = . %>% filter(Id %in% c("CDK4mut_a", "CDK4mut_b"))) +
   theme_light(base_size = 11) +
   ylim(-5, 1) +
   xlim(7, 14) +
@@ -983,10 +988,10 @@ d1000.mean = cd8.norm.fil %>%
 d1000.plot = d1000.mean %>% 
   ggplot(aes(x = A, y = M)) +
   geom_point(colour = alpha("grey", 0.5)) +
-  geom_point(size = 4.5, colour = rgb(237,157,148, max=255), data = filter(d1000.mean, Id %in% c("oligo_4281", "oligo_1899"))) + #MART1-Ag
-  geom_point(size = 4.5, colour = rgb(199,150,149, max=255), data = filter(d1000.mean, Id %in% c("oligo_913", "oligo_3295"))) + #MART1-W
-  geom_point(size = 4.5, colour = rgb(102,165,165, max=255), data = filter(d1000.mean, Id %in% c("oligo_1887", "oligo_4269"))) + #CDK4-Ag
-  geom_point(size = 4.5, colour = rgb(88,121,163, max=255), data = filter(d1000.mean, Id %in% c("oligo_1888", "oligo_4270"))) + #CDK4-WT
+  geom_point(colour = alpha("red", 0.7), data = . %>% filter(Id %in% c("MART1_ELA_a", "MART1_ELA_b"))) +
+  geom_point(colour = alpha("lightblue", 0.7), data = . %>% filter(Id %in% c("MART1_a", "MART1_b"))) +
+  geom_point(colour = alpha("orange", 0.7), data = . %>% filter(Id %in% c("CDK4wt_a", "CDK4wt_b"))) +
+  geom_point(colour = alpha("darkgreen", 0.7), data = . %>% filter(Id %in% c("CDK4mut_a", "CDK4mut_b"))) +
   theme_light(base_size = 11) +
   ylim(-5, 1) +
   xlim(7, 14) +
@@ -995,7 +1000,7 @@ d1000.plot = d1000.mean %>%
 d1000.plot
 
 # Plot as single panel
-d10.plot / d100.plot / d300.plot / d1000.plot
+d10.plot + d100.plot + d300.plot + d1000.plot
 ```
 
 
