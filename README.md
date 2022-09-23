@@ -9,6 +9,8 @@ At this time the data objects (e.g .rda) are only available upon request.
 ## Description
 This repository contains analyses for the publication, Cattaneo et al. It contains a R Markdown document outlining the code and commands analysis that were involved in the manuscript after the sequencing data was processed. It does not contain the raw sequencing data, but this information can be found with the Data Availability section within the publication. 
 
+*The 3 markdown reports  refer to the code used to generate figures for the CD4 & CD8 benchmark as well as the ITO66 patient dropout screen.*
+
 ### Data Processing
 The raw sequencing data underwent a pre-processing step that removed low quality reads, extracted inline sequence barcodes and generated a count matrix after aligneing to the oligo library. 
 
