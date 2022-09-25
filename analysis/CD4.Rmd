@@ -311,7 +311,7 @@ ggplotly(mansc_mock.maplot)
 ```{r}
 p = (snord_mock.maplot + ggtitle("") | mansc_mock.maplot + ggtitle("")) & ylim(-3, 0.75) & xlim(7, 11)
 p
-ggsave("figures/CD4-benchmark-older.pdf", p, width = 6, height = 4)
+ggsave("figures/CD4-benchmark.pdf", p, width = 6, height = 4)
 ```
 
 

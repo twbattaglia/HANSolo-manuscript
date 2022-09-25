@@ -55,19 +55,5 @@ filter_low = function(input, percentile = 0.05){
 }
 
 
-# Function to filter low counts (bottom 5%)
-remove_lowcounts = function(input, percentile = 0.05){
-  
-  # Keep passing
-  passing.idx = input %>% 
-    filter(baseMean >= quantile(baseMean, percentile)) %>% 
-    pull(Gene)
-  
-  # Filter table
-  input %>% 
-    filter(Gene %in% passing.idx)
-  
-}
-
 
 

@@ -32,11 +32,11 @@ We are going to first import the merged counts tables that is outputted from the
 
 ## Import data
 ```{r}
-# Import CD4 counts
+# Import counts
 counts = readRDS('../data/CD8-counts.rda')
 head(counts)
 
-# Import CD4 metadata
+# Import metadata
 metadata = readRDS('../data/CD8-metadata.rda')
 head(metadata)
 

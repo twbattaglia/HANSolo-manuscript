@@ -218,7 +218,7 @@ dropout.res %>%
 
 # Browse
 dropout.res %>% 
-  select(gene_id, log2FoldChange, padj, gene_name, gene_id) %>% 
+  select(oligo_id, log2FoldChange, padj) %>% 
   DT::datatable(extensions = 'Buttons', options = list(
     dom = 'Bfrtip',
     buttons = c('copy', 'csv', 'excel', 'pdf', 'print')
