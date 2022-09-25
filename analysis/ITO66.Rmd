@@ -1,0 +1,250 @@
+---
+title: "ITO66-patient"
+author: "Thomas W. Battaglia"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(warning = FALSE)
+knitr::opts_chunk$set(fig.path = "images/")
+library(knitr)
+library(patchwork)
+library(ggsci)
+library(ggrepel)
+library(DESeq2)
+library(readxl)
+library(ggplotify)
+library(plotly)
+library(ggpubr)
+library(tidyverse)
+source('helpers.R')
+```
+
+# Introduction
+
+## Data import & preprocessing
+We are going to first import the merged counts tables that is outputted from the Nextflow pipeline. This table already has the raw counts summarised from the alignments and merged into a single matrix.
+
+## Import data
+```{r}
+# Import CD4 counts
+counts = readRDS('../data/ITO66-counts.rda')
+head(counts)
+
+# Import CD4 metadata
+metadata = readRDS('../data/ITO66-metadata.rda')
+head(metadata)
+
+# Import MultiQC results
+report = readRDS('../data/ITO66-report.rda')
+head(report)
+```
+
+
+----
+
+### Number of mapped reads
+
+```{r}
+p1 = report %>% 
+  select(Sample, reads_unmapped, reads_mapped) %>% 
+  mutate(Sample = str_replace(Sample, '-bamstats', '')) %>% 
+  pivot_longer(cols = c("reads_unmapped", "reads_mapped"), names_to = "feature", values_to = "reads") %>% 
+    mutate(feature = if_else(feature == "reads_unmapped", "Unmapped", feature)) %>% 
+  mutate(feature = if_else(feature == "reads_mapped", "Mapped", feature)) %>% 
+  ggplot(aes(x = reorder(Sample, reads), y = reads, fill = feature)) +
+  geom_col() +
+  coord_flip() +
+  theme_classic(base_size = 10) +
+  theme(legend.position = "top") +
+  scale_fill_brewer(palette = "Set2") +
+  xlab("") +
+  ylab("Number of reads") +
+  ggtitle("Library mapping rate")
+p1
+
+### Percent of mapped reads
+p2 = report %>% 
+  select(Sample, reads_unmapped_percent, reads_mapped_percent ) %>% 
+  mutate(Sample = str_replace(Sample, '-bamstats', '')) %>% 
+  pivot_longer(cols = c("reads_unmapped_percent", "reads_mapped_percent"), names_to = "feature", values_to = "reads") %>% 
+  mutate(reads = reads / 100) %>% 
+  mutate(feature = if_else(feature == "reads_unmapped_percent", "Unmapped", feature)) %>% 
+  mutate(feature = if_else(feature == "reads_mapped_percent", "Mapped", feature)) %>% 
+  ggplot(aes(x = reorder(Sample, reads), y = reads, fill = feature)) +
+  geom_col() +
+  coord_flip() +
+  theme_classic(base_size = 10) +
+  theme(legend.position = "top") +
+  scale_fill_brewer(palette = "Set2") +
+  scale_y_continuous(labels = scales::percent) +
+  xlab("") +
+  ylab("Percent of reads")
+p2
+
+# Plot together
+p = (p1 | p2) + plot_layout(guides = "collect") & theme(legend.position = "bottom")
+p
+ggsave("figures/ITO66-mapping-qc.pdf", p, width = 8, height = 5)
+```
+
+
+
+----
+
+## Normalize data
+
+```{r}
+# Match the sample ID's between samples
+counts = counts[,match(metadata$Sample, colnames(counts))]
+
+# Make DESeq2 object
+ddsMat <- DESeqDataSetFromMatrix(countData = counts,
+                                 colData = metadata,
+                                 design = ~Group)
+
+# Get normalize counts
+ddsMat <- estimateSizeFactors(ddsMat)
+
+# Filter flow counts
+ddsMat.fil = ddsMat %>% 
+  filter_low(percentile = 0.05)
+
+# Get normalized counts 
+counts.norm.fil <- (counts(ddsMat.fil, normalized = TRUE) + 0.5) %>% 
+  as.data.frame() %>% 
+  rownames_to_column("oligo_id")
+
+# Create a long table 
+counts.norm.fil.long = counts.norm.fil %>% 
+  pivot_longer(cols = -oligo_id, names_to = "sampleId", values_to = "norm")
+```
+
+---
+
+### Technical replicates
+Bcells_alone_1 appears to be too noisy for inclusion as as replicate
+
+```{r}
+# Bcell
+counts.norm.fil %>% 
+  ggplot(., aes(x = log10(Bcells_alone_1), y = log10(Bcells_alone_2))) +
+  geom_point(colour = alpha("grey", 0.7)) +
+  xlab("Bcell #1") +
+  ylab("Bcell #2") +
+  theme_classic(base_size = 9) +
+  stat_cor(method = "pearson", aes(label = ..r.label..)) +
+  stat_smooth(method = "lm", color = "red") 
+
+counts.norm.fil %>% 
+  ggplot(., aes(x = log10(Bcells_alone_1), y = log10(Bcells_cntrl))) +
+  geom_point(colour = alpha("grey", 0.7)) +
+  xlab("Bcell #1") +
+  ylab("Bcell-ctrl #1") +
+  theme_classic(base_size = 9) +
+  stat_cor(method = "pearson", aes(label = ..r.label..)) +
+  stat_smooth(method = "lm", color = "red") 
+
+counts.norm.fil %>% 
+  ggplot(., aes(x = log10(Bcells_alone_2), y = log10(Bcells_cntrl))) +
+  geom_point(colour = alpha("grey", 0.7)) +
+  xlab("Bcell #2") +
+  ylab("Bcell-ctrl #1") +
+  theme_classic(base_size = 9) +
+  stat_cor(method = "pearson", aes(label = ..r.label..)) +
+  stat_smooth(method = "lm", color = "red") 
+
+# B & T-cells
+counts.norm.fil %>% 
+  ggplot(., aes(x = log10(Bcells_Tcells_1), y = log10(Bcells_Tcells_2))) +
+  geom_point(colour = alpha("grey", 0.7)) +
+  xlab("BT cells #1") +
+  ylab("BT cells #2") +
+  theme_classic(base_size = 9) +
+  stat_cor(method = "pearson", aes(label = ..r.label..)) +
+  stat_smooth(method = "lm", color = "red") 
+
+counts.norm.fil %>% 
+  ggplot(., aes(x = log10(Bcells_Tcells_1), y = log10(Bcells_Tcells_3))) +
+  geom_point(colour = alpha("grey", 0.7)) +
+  xlab("BT cells #1") +
+  ylab("BT cells #3") +
+  theme_classic(base_size = 9) +
+  stat_cor(method = "pearson", aes(label = ..r.label..)) +
+  stat_smooth(method = "lm", color = "red")
+
+counts.norm.fil %>% 
+  ggplot(., aes(x = log10(Bcells_Tcells_2), y = log10(Bcells_Tcells_3))) +
+  geom_point(colour = alpha("grey", 0.7)) +
+  xlab("BT cells #2") +
+  ylab("BT cells #3") +
+  theme_classic(base_size = 9) +
+  stat_cor(method = "pearson", aes(label = ..r.label..)) +
+  stat_smooth(method = "lm", color = "red")
+
+```
+
+
+### Plot normalized histogram
+```{r}
+counts.norm.fil.long %>% 
+  ggplot(aes(x = log10(norm))) +
+  geom_histogram(aes(y=..density..), binwidth=0.25, colour="black", fill="white") +
+  geom_density(alpha = 0.2, fill = "#FF6666") +
+  facet_wrap(sampleId~.) +
+  theme_light(base_size = 11) +
+  ylab("Density") +
+  xlab("Normalized reads per oligo (log10)") 
+```
+
+
+----
+
+## Determine dropout oligo's
+```{r}
+# Keep samples of interest
+ddsMat.fil = ddsMat[,which(colnames(assay(ddsMat)) %in% c("Bcells_alone_2", "Bcells_cntrl", "Bcells_Tcells_2", "Bcells_Tcells_1"))]
+
+# Detect dropouts
+dropout.res = compute_stats(ddsMat.fil, trt = "BTcell", ref = "Bcell", fitType = "parametric", lfcThreshold = 0.25, alpha = 0.05) %>% 
+  mutate(log2FoldChange = round(log2FoldChange, 2)) %>% 
+  mutate(log2FoldChangeShrunken = round(log2FoldChangeShrunken, 2)) 
+
+# Significant oligos
+dropout.res %>% 
+  filter(padj < 0.05)
+
+# Browse
+dropout.res %>% 
+  select(gene_id, log2FoldChange, padj, gene_name, gene_id) %>% 
+  DT::datatable(extensions = 'Buttons', options = list(
+    dom = 'Bfrtip',
+    buttons = c('copy', 'csv', 'excel', 'pdf', 'print')
+  ))
+
+# Plot MA-plot
+ito66.maplot = dropout.res %>% 
+  ggplot(aes(x = log2(baseMean), y = log2FoldChange, label = oligo_id)) +
+  geom_point(colour = alpha("grey", 0.7)) +
+  geom_point(data = filter(dropout.res, oligo_id %in% c("ABT1_001")), size = 3, colour = "#efc383") +
+  geom_point(data = filter(dropout.res, oligo_id %in% c("EEF1A1_001B")), size = 3, colour = "#efc383") +
+  geom_text_repel(data = filter(dropout.res, oligo_id %in% c("ABT1_001", "EEF1A1_001B")), box.padding = 0.5, max.overlaps = Inf, size = 2.5) +
+  theme_classic() +
+  xlim(5, 10) +
+  ylim(-3, 2) +
+  xlab("Mean counts (log2)") +
+  ylab("Fold change log2(B&Tcells/Bcells)")  +
+  ggtitle("ITO66")
+ggplotly(ito66.maplot)
+```
+
+
+
+
+## Session info
+```{r}
+sessionInfo()
+```
+
